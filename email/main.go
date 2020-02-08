@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -31,7 +32,7 @@ var (
 	ErrNon200Response = errors.New("Non 200 Response found")
 )
 
-func getDocument(sess *session.Session, fileName string, key string) error {
+func getDocument(sess *session.Session, fileName string) error {
 	fmt.Println("Getting Documents!!!!!!!!!!")
 	bucket, err := getParameter(sess, "bill-bucket")
 	if err != nil {
@@ -39,7 +40,7 @@ func getDocument(sess *session.Session, fileName string, key string) error {
 	}
 
 	downloader := s3manager.NewDownloader(sess)
-	file, err := os.Create(fileName)
+	file, err := os.Create(fmt.Sprintf("/tmp/%v", fileName))
 	defer file.Close()
 	if err != nil {
 		logrus.Errorf("Error creating file: %v\n", err)
@@ -48,7 +49,7 @@ func getDocument(sess *session.Session, fileName string, key string) error {
 	numBytes, err := downloader.Download(file,
 		&s3.GetObjectInput{
 			Bucket: aws.String(bucket),
-			Key:    aws.String(key),
+			Key:    aws.String(fmt.Sprintf("recipient/%v", fileName)),
 		})
 
 	if err != nil {
@@ -71,42 +72,28 @@ func getParameter(sess *session.Session, pName string) (string, error) {
 	return *f.Parameter.Value, nil
 }
 
-func handler(request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	fileName := "/tmp/test.pdf"
-	key := "recipient/1001.pdf"
-	recipient := "winfieldlee01@gmail.com"
-
+func sendEmail(sess *session.Session, recipient, subject, fileName string) error {
 	host := os.Getenv("SMTP_HOST")
 	port := os.Getenv("SMTP_PORT")
 
-	sess, err := session.NewSession()
-	if err != nil {
-		logrus.Errorf("Error creating new aws session: %v\n", err)
-		return events.APIGatewayProxyResponse{}, err
-	}
-
-	err = getDocument(sess, fileName, key)
-	if err != nil {
-		logrus.Errorf("Error getting document: %v\n", err)
-		return events.APIGatewayProxyResponse{}, err
-	}
-
+	// get parameters
 	from, err := getParameter(sess, "billing-email")
 	if err != nil {
-		return events.APIGatewayProxyResponse{}, err
+		return err
 	}
 
 	pass, err := getParameter(sess, "billing-email-password")
 	if err != nil {
-		return events.APIGatewayProxyResponse{}, err
+		return err
 	}
 
-	m := email.NewMessage("Billing", "HI")
+	// create message
+	m := email.NewMessage(subject, "")
 	m.From = mail.Address{Name: "From", Address: from}
 	m.To = []string{recipient}
 
 	// add attachments
-	if err := m.Attach(fileName); err != nil {
+	if err := m.Attach(fmt.Sprintf("/tmp/%v", fileName)); err != nil {
 		log.Fatal(err)
 	}
 
@@ -117,6 +104,42 @@ func handler(request events.APIGatewayProxyRequest) (events.APIGatewayProxyRespo
 	auth := smtp.PlainAuth("", from, pass, host)
 	if err := email.Send(fmt.Sprintf("%v:%v", host, port), auth, m); err != nil {
 		log.Fatal(err)
+	}
+
+	return nil
+}
+
+type EmailEvent struct {
+	FileName  string `json:"fileName"`
+	Recipient string `json:"recipient"`
+	Subject   string `json:"subject"`
+}
+
+func handler(request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
+	body := request.Body
+	var event EmailEvent
+	json.Unmarshal([]byte(body), &event)
+
+	fileName := event.FileName
+	recipient := event.Recipient
+	subject := event.Subject
+
+	sess, err := session.NewSession()
+	if err != nil {
+		logrus.Errorf("Error creating new aws session: %v\n", err)
+		return events.APIGatewayProxyResponse{}, err
+	}
+
+	err = getDocument(sess, fileName)
+	if err != nil {
+		logrus.Errorf("Error getting document: %v\n", err)
+		return events.APIGatewayProxyResponse{}, err
+	}
+
+	err = sendEmail(sess, recipient, subject, fileName)
+	if err != nil {
+		logrus.Errorf("Error sending email: %v\n", err)
+		return events.APIGatewayProxyResponse{}, err
 	}
 
 	return events.APIGatewayProxyResponse{
