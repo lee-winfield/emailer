@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"net/mail"
 	"net/smtp"
 	"os"
@@ -33,7 +32,6 @@ var (
 )
 
 func getDocument(sess *session.Session, fileName string) error {
-	fmt.Println("Getting Documents!!!!!!!!!!")
 	bucket, err := getParameter(sess, "bill-bucket")
 	if err != nil {
 		return err
@@ -46,7 +44,7 @@ func getDocument(sess *session.Session, fileName string) error {
 		logrus.Errorf("Error creating file: %v\n", err)
 		return err
 	}
-	numBytes, err := downloader.Download(file,
+	_, err = downloader.Download(file,
 		&s3.GetObjectInput{
 			Bucket: aws.String(bucket),
 			Key:    aws.String(fmt.Sprintf("recipient/%v", fileName)),
@@ -56,8 +54,6 @@ func getDocument(sess *session.Session, fileName string) error {
 		logrus.Errorf("Error downloading document from s3: %v\n", err)
 		return err
 	}
-
-	fmt.Println("Downloaded", file.Name(), numBytes, "bytes")
 
 	return nil
 }
@@ -69,6 +65,7 @@ func getParameter(sess *session.Session, pName string) (string, error) {
 		logrus.Errorf("Error getting parameter: %v\n", err)
 		return "", err
 	}
+
 	return *f.Parameter.Value, nil
 }
 
@@ -89,12 +86,12 @@ func sendEmail(sess *session.Session, recipient, subject, fileName string) error
 
 	// create message
 	m := email.NewMessage(subject, "")
-	m.From = mail.Address{Name: "From", Address: from}
+	m.From = mail.Address{Name: "Claudia Winfield", Address: from}
 	m.To = []string{recipient}
 
 	// add attachments
 	if err := m.Attach(fmt.Sprintf("/tmp/%v", fileName)); err != nil {
-		log.Fatal(err)
+		logrus.Fatal(err)
 	}
 
 	// add headers
@@ -103,7 +100,8 @@ func sendEmail(sess *session.Session, recipient, subject, fileName string) error
 	// send it
 	auth := smtp.PlainAuth("", from, pass, host)
 	if err := email.Send(fmt.Sprintf("%v:%v", host, port), auth, m); err != nil {
-		log.Fatal(err)
+		logrus.Fatal(err)
+		return err
 	}
 
 	return nil
