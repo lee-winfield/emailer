@@ -8,7 +8,7 @@ Description: >
 # More info about Globals: https://github.com/awslabs/serverless-application-model/blob/master/docs/globals.rst
 Globals:
   Function:
-    Timeout: 5
+    Timeout: 10
 
 Resources:
   EmailFunction:
@@ -39,6 +39,4 @@ Outputs:
   EmailFunction:
     Description: "First Lambda Function ARN"
     Value: !GetAtt EmailFunction.Arn
-  EmailFunctionIamRole:
-    Description: "Implicit IAM Role created for Hello World function"
-    Value: !GetAtt EmailFunctionIamRole.Arn
+
